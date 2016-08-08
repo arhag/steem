@@ -1622,8 +1622,7 @@ void full_beneficiary_claim_evaluator::do_apply( const full_beneficiary_claim_op
    FC_ASSERT( will_item->percent == STEEMIT_100_PERCENT, 
              "Cannot make full beneficiary claim when associated will item does not have a percent field equal to 100%",
                              ("benefactor", o.benefactor)("will_item_id", o.will_item_id)("percent", will_item->percent) );
-   const auto& wi = *will_item;
-   auto will_item_id = wi.get_id();
+   auto will_item_id = will_item->get_id();
 
    const auto& fbc_idx = db().get_index_type< full_beneficiary_claim_index >().indices().get< by_will_item >();
    auto existing_claim = fbc_idx.find( will_item_id );
@@ -1700,8 +1699,7 @@ void change_inheritance_owner_evaluator::do_apply( const change_inheritance_owne
    const auto& current_owner = db().get_account( o.current_owner );
    FC_ASSERT( inheritance->owner == current_owner.get_id(), "Given current_owner is not the actual owner of the specified inheritance object",
                                                                         ("inheritance_id", o.inheritance_id)("current_owner", o.current_owner) );
-   const auto& i = *inheritance;
-   auto inheritance_id = i.get_id();
+   auto inheritance_id = inheritance->get_id();
   
    if( o.new_owner != "" )
       db().get_account( o.new_owner ); // Just check that the new_owner account actually exists
