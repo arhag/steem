@@ -260,7 +260,7 @@ namespace steemit { namespace chain {
 
 #include <steemit/chain/comment_object.hpp>
 #include <steemit/chain/account_object.hpp>
-
+#include <steemit/chain/will_objects.hpp>
 
 FC_REFLECT_DERIVED( steemit::chain::limit_order_object, (graphene::db::object),
                     (created)(expiration)(seller)(orderid)(for_sale)(sell_price) )

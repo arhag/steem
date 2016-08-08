@@ -308,4 +308,51 @@ namespace steemit { namespace chain {
       FC_ASSERT( is_valid_account_name( new_recovery_account ) );
    }
 
+   void change_will_operation::validate()const
+   {
+      FC_ASSERT( is_valid_account_name( benefactor ) );
+      if( owner_proof_duration != 0 )
+      {
+         FC_ASSERT( fc::seconds(owner_proof_duration)  >= STEEMIT_MIN_ACTIVITY_PROOF_DURATION, "Owner proof duration must be at least 1 day" );
+         FC_ASSERT( fc::seconds(active_proof_duration) >= STEEMIT_MIN_ACTIVITY_PROOF_DURATION, "Active proof duration must be at least 1 day" );
+      }
+   }
+
+   void change_will_item_operation::validate()const
+   {
+      FC_ASSERT( is_valid_account_name( benefactor ) );
+      beneficiary_authority.validate();
+      FC_ASSERT( 0 <= percent && percent <= STEEMIT_100_PERCENT, "Percent must be valid steemit percent" );
+      if( waiting_period != 0 )
+         FC_ASSERT( fc::seconds(waiting_period)  >= STEEMIT_MIN_BENEFICIARY_WAITING_PERIOD, "Waiting period must be at least 30 days" );
+   }
+
+   void full_beneficiary_claim_operation::validate()const
+   {
+      FC_ASSERT( is_valid_account_name( benefactor ) );
+      if( new_owner_authority )
+         new_owner_authority->validate();
+   }
+
+   void partial_beneficiary_claim_operation::validate()const
+   {
+      FC_ASSERT( is_valid_account_name( benefactor ) );
+      if( claim_account != "" ) 
+         FC_ASSERT( is_valid_account_name( claim_account ) );
+
+   }
+   
+   void change_inheritance_owner_operation::validate()const
+   {
+      FC_ASSERT( is_valid_account_name( current_owner ) );
+      if( new_owner != "" )
+         FC_ASSERT( is_valid_account_name( new_owner ) );
+   }
+
+   void merge_inheritance_operation::validate()const
+   {
+      FC_ASSERT( is_valid_account_name( current_owner ) );
+   } 
+
+
 } } // steemit::chain

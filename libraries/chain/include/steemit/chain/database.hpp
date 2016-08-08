@@ -279,6 +279,7 @@ namespace steemit { namespace chain {
          void process_funds();
          void process_conversions();
          void account_recovery_processing();
+         void will_processing();
          void update_median_feed();
          share_type claim_rshare_reward( share_type rshares, uint16_t reward_weight, asset max_steem );
 
@@ -297,6 +298,10 @@ namespace steemit { namespace chain {
 
          void  pay_liquidity_reward();
 
+         bool  is_account_inactive( const account_object& acct );
+         void  remove_beneficiary_claims_on_account( const account_object& acct );
+         void  owner_authority_proved( const account_object& acct );
+         void  active_authority_proved( const account_object& acct );
 
          //////////////////// db_getter.cpp ////////////////////
 

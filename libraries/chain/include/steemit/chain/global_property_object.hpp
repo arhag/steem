@@ -131,6 +131,11 @@ namespace steemit { namespace chain {
           *   happen every block.
           */
          uint64_t current_reserve_ratio = 1;
+
+         /**
+          *  Tracks the last inheritance ID the blockchain assigned to an inheritance object it created.
+          */
+         uint64_t last_inheritance_id = 0;
    };
 }}
 
@@ -161,5 +166,6 @@ FC_REFLECT_DERIVED( steemit::chain::dynamic_global_property_object, (graphene::d
                     (last_irreversible_block_num)
                     (max_virtual_bandwidth)
                     (current_reserve_ratio)
+                    (last_inheritance_id)
                   )
 

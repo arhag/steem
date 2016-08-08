@@ -51,6 +51,13 @@ namespace steemit { namespace chain {
             escrow_dispute_operation,
             escrow_release_operation,
 
+            change_will_operation,
+            change_will_item_operation,
+            full_beneficiary_claim_operation,
+            partial_beneficiary_claim_operation,
+            change_inheritance_owner_operation,
+            merge_inheritance_operation,
+
             /// virtual operations below this point
             fill_convert_request_operation,
             comment_reward_operation,

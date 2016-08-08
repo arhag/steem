@@ -118,7 +118,14 @@ namespace steemit { namespace chain {
       impl_owner_authority_history_object_type,
       impl_account_recovery_request_object_type,
       impl_change_recovery_account_request_object_type,
-      impl_escrow_object_type
+      impl_escrow_object_type,
+      impl_will_item_object_type,
+      impl_full_beneficiary_claim_object_type,
+      impl_partial_beneficiary_claim_object_type,
+      impl_inheritance_object_type,
+      impl_change_will_object_type,
+      impl_change_will_item_object_type,
+      impl_change_inheritance_owner_object_type
    };
 
    class operation_object;
@@ -147,7 +154,13 @@ namespace steemit { namespace chain {
    class account_recovery_request_object;
    class change_recovery_account_request_object;
    class escrow_object;
-
+   class will_item_object;
+   class full_beneficiary_claim_object;
+   class partial_beneficiary_claim_object;
+   class inheritance_object;
+   class change_will_object;
+   class change_will_item_object;
+   class change_inheritance_owner_object;
 
    typedef object_id< implementation_ids, impl_operation_object_type,                        operation_object >                        operation_id_type;
    typedef object_id< implementation_ids, impl_account_history_object_type,                  account_history_object >                  account_history_id_type;
@@ -174,6 +187,13 @@ namespace steemit { namespace chain {
    typedef object_id< implementation_ids, impl_account_recovery_request_object_type,         account_recovery_request_object >         account_recovery_request_id_type;
    typedef object_id< implementation_ids, impl_change_recovery_account_request_object_type,  change_recovery_account_request_object >  change_recovery_account_request_id_type;
    typedef object_id< implementation_ids, impl_escrow_object_type,                           escrow_object >                           escrow_id_type;
+   typedef object_id< implementation_ids, impl_will_item_object_type,                        will_item_object >                        will_item_id_type;
+   typedef object_id< implementation_ids, impl_full_beneficiary_claim_object_type,           full_beneficiary_claim_object >           full_beneficiary_claim_id_type;
+   typedef object_id< implementation_ids, impl_partial_beneficiary_claim_object_type,        partial_beneficiary_claim_object >        partial_beneficiary_claim_id_type;
+   typedef object_id< implementation_ids, impl_inheritance_object_type,                      inheritance_object >                      inheritance_id_type;
+   typedef object_id< implementation_ids, impl_change_will_object_type,                      change_will_object >                      change_will_id_type;
+   typedef object_id< implementation_ids, impl_change_will_item_object_type,                 change_will_item_object >                 change_will_item_id_type;
+   typedef object_id< implementation_ids, impl_change_inheritance_owner_object_type,         change_inheritance_owner_object >         change_inheritance_owner_id_type;
 
    typedef fc::ripemd160                                        block_id_type;
    typedef fc::ripemd160                                        checksum_type;
@@ -302,6 +322,13 @@ FC_REFLECT_ENUM( steemit::chain::impl_object_type,
                  (impl_account_recovery_request_object_type)
                  (impl_change_recovery_account_request_object_type)
                  (impl_escrow_object_type)
+                 (impl_will_item_object_type)
+                 (impl_full_beneficiary_claim_object_type)
+                 (impl_partial_beneficiary_claim_object_type)
+                 (impl_inheritance_object_type)
+                 (impl_change_will_object_type)
+                 (impl_change_will_item_object_type)
+                 (impl_change_inheritance_owner_object_type)
                )
 
 FC_REFLECT_TYPENAME( steemit::chain::share_type )
@@ -316,4 +343,6 @@ FC_REFLECT_TYPENAME( steemit::chain::transaction_obj_id_type )
 FC_REFLECT_TYPENAME( steemit::chain::block_summary_id_type )
 FC_REFLECT_TYPENAME( steemit::chain::account_history_id_type )
 FC_REFLECT_TYPENAME( steemit::chain::hardfork_property_id_type )
+FC_REFLECT_TYPENAME( steemit::chain::will_item_id_type )
+FC_REFLECT_TYPENAME( steemit::chain::inheritance_id_type )
 FC_REFLECT( steemit::chain::void_t, )

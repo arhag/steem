@@ -109,6 +109,17 @@ namespace steemit { namespace chain {
          time_point_sec  last_activity_payout;
          ///@}
 
+         /**
+          *  Used for will / inheritance / recovery from lost password feature
+          */
+         ///@{
+         uint32_t        active_proof_duration = std::numeric_limits<uint32_t>::max();
+         uint32_t        owner_proof_duration  = std::numeric_limits<uint32_t>::max();
+         uint16_t        num_will_items        = 0;
+         uint16_t        will_total_percent    = 0;
+         ///@} 
+
+
          account_id_type get_id()const { return id; }
          /// This function should be used only when the account votes for a witness directly
          share_type      witness_vote_weight()const {

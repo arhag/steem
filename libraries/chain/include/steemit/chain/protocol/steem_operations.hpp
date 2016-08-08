@@ -740,6 +740,170 @@ namespace steemit { namespace chain {
 
       void validate() const;
    };
+
+   /**
+    * This operation submits a request to change some of the parameters in the will contract
+    * after 30 days. Only the two durations that determine account inactivity can be changed by
+    * this operation. Other changes to the will contract require the change_will_item_operation.
+    *
+    * If this operation is submitted when there is already a pending change to the benefactor's
+    * will contract, it will cancel the old pending change and replace it with the new one.
+    */
+   struct change_will_operation : public base_operation
+   {
+      string            benefactor;                ///< The account whose will contract is being changed
+
+      uint32_t          active_proof_duration = 0; ///< New duration in seconds since last_active_proved before account is vulnerable to recovery/inheritance.
+                                                   ///< The blockchain enforces a minimum limit of 1 day.
+
+      uint32_t          owner_proof_duration = 0;  ///< New duration in seconds since last_owner_proved before account is vulnerable to recovery/inheritance.
+                                                   ///< The blockchain enforces a minimum limit of 1 day, unless owner_proof_duration is 0, in which case
+                                                   ///< this operation cancels any pending changes to the benefactor's will contract.
+
+      bool              clear_will_items = false;  ///< If set to true, the operation will also clear all will items in this will contract.
+
+      void get_required_owner_authorities( flat_set<string>& a )const{ a.insert( benefactor ); }
+
+      void validate() const;
+   };
+
+   /**
+    * This operation submits a request to change a particular will item of a benefactor's will contract
+    * after 30 days. Each will item has a number unique to the benefactor to identify it.
+    *
+    * If this operation is submitted when there is already a pending change for the same
+    * will item, then it will cancel that old pending change and replate it with this new one.
+    */
+   struct change_will_item_operation : public base_operation
+   {
+      string            benefactor;             ///< The account whose will contract is being changed
+
+      uint16_t          will_item_id;           ///< Unique (to the benefactor's will contract) ID for this will item
+
+      authority         beneficiary_authority;  ///< New authority that can make a beneficiary claim corresponding to this will item
+
+      uint32_t          waiting_period;         ///< New duration in seconds that the beneficiary must wait after their claim before
+                                                ///< the beneficiary claim is activated.
+                                                ///< The blockchain enforces a minimum limit of 30 days, unless waiting_period is 0,
+                                                ///< in which case this operation cnacels any pending changes to the target will item.
+
+      uint16_t          percent = 0 ;           ///< New percent which determines how much of a claim a beneficiary claim can have
+                                                ///< on the benefactor account and its funds.
+                                                ///< 100% means the beneficiary can change the owner authority of the benefactor
+                                                ///< account when their beneficiary claim is activated or after an inheritance
+                                                ///< event if the valid beneficiary claim was submitted beforehand.
+                                                ///< 0% means the existing will item should be removed from the will contract.
+                                                ///< Any other percent between those two extremes defines what fraction of the
+                                                ///< benefactor account's funds the account that makes the beneficiary claim
+                                                ///< corresponding to this will item can receive during the inheritance event.
+      
+      void get_required_owner_authorities( flat_set<string>& a)const{ a.insert( benefactor ); }
+
+      void validate() const;
+   }; 
+
+   /**
+    * Make a beneficiary claim corresponding to a will item with a percent field of 100%.
+    *
+    * The timer begins when this beneficiary claim is submitted to the blockchain.
+    * After waiting for the appropriate duration (as defined by waiting_period of the corresponding
+    * will item), the beneficiary claim is activated.
+    *
+    * If this operation is submitted when there is already a pending claim for the same will item,
+    * the blockchain will simply replace the new_owner_authority of the pending change without 
+    * resetting the timer.
+    */
+   struct full_beneficiary_claim_operation : public base_operation
+   {
+      string                  benefactor;             ///< The account with respect to which this claim is being made
+
+      uint16_t                will_item_id;           ///< The ID of the will item of the benefactor account that this benefactor claim is associated with
+
+      authority               beneficiary_authority;  ///< This authority must be identical to beneficiary_authority of the will item that this 
+                                                      ///< beneficiary claim is associated with.
+
+      optional< authority >   new_owner_authority;    ///< The new owner authority for the benefactor account if this claim was to be activated.
+                                                      ///< If no new owner authority is provided, the operation instead removes the existing beneficiary
+                                                      ///< claim associated to the specified will item.
+      
+      void get_required_authorities( vector<authority>& a )const{ a.push_back( beneficiary_authority ); }
+
+      void validate() const;
+   };
+
+   /**
+    * Make a beneficiary claim corresponding to a will item with a percent field of less than 100%.
+    *
+    * The timer begins when this beneficiary claim is submitted to the blockchain.
+    * After waiting for the appropriate duration (as defined by waiting_period of the corresponding
+    * will item), the beneficiary claim is activated which triggers an inheritance event.
+    *
+    * If this operation is submitted when there is already a pending claim for the same will item,
+    * the blockchain will simply replace the claim_account of the pending change without 
+    * resetting the timer.
+    */
+   struct partial_beneficiary_claim_operation : public base_operation
+   {
+      string                  benefactor;             ///< The account with respect to which this claim is being made
+
+      uint16_t                will_item_id;           ///< The ID of the will item of the benefactor account that this benefactor claim is associated with
+
+      authority               beneficiary_authority;  ///< This authority must be identical to beneficiary_authority of the will item that this 
+                                                      ///< beneficiary claim is associated with.
+
+      string                  claim_account;          ///< The new account which will receive the inheritance for the benefactor account if this claim was to be activated.
+                                                      ///< If claim_account is the empty string, the operation instead removes the existing beneficiary
+                                                      ///< claim associated to the specified will item.
+    
+      void get_required_authorities( vector<authority>& a )const{ a.push_back( beneficiary_authority ); }
+
+      void get_required_active_authorities( flat_set<string>& a)const
+      {
+         if( claim_account != "" )
+            a.insert( claim_account );
+      }
+
+      void validate() const;
+   };
+
+   /**
+    * This operation submits a request to change the account an inheritance object is tied to
+    * after 30 days. 
+    *
+    * If this operation is submitted when there is already a pending change for the same
+    * inheritance object, then it will cancel that old pending change and replate it with this new one.
+    */
+   struct change_inheritance_owner_operation : public base_operation
+   {
+      uint64_t                inheritance_id;         ///< The ID of the target inheritance object
+
+      string                  current_owner;          ///< This must be the name of the account that the target inheritance object is currently tied to
+
+      string                  new_owner;              ///< The account that the target inheritance object should be tied to after the change.
+                                                      ///< If new_owner is the empty string, the operation instead cancels the existing pending change
+                                                      ///< to the owner of the specified inheritance object.
+
+      void get_required_owner_authorities( flat_set<string>& a)const{ a.insert( current_owner ); }
+
+      void validate() const;
+   };
+
+   /**
+    * Immediately merges the VESTS of an existing inheritance object into the owner's account.
+    * Requires the inheritance object to be at least 44 days old to prevent gaming the
+    * post/comment voting system.
+    */
+   struct merge_inheritance_operation : public base_operation
+   {
+      uint64_t                inheritance_id;         ///< The ID of the target inheritance object
+
+      string                  current_owner;          ///< This must be the name of the account that the target inheritance object is currently tied to
+
+      void get_required_owner_authorities( flat_set<string>& a)const{ a.insert( current_owner ); }
+
+      void validate() const;
+   };
+
 } } // steemit::chain
 
 FC_REFLECT( steemit::chain::report_over_production_operation, (reporter)(first_block)(second_block) )
@@ -802,3 +966,10 @@ FC_REFLECT( steemit::chain::prove_authority_operation, (challenged)(require_owne
 FC_REFLECT( steemit::chain::request_account_recovery_operation, (recovery_account)(account_to_recover)(new_owner_authority)(extensions) );
 FC_REFLECT( steemit::chain::recover_account_operation, (account_to_recover)(new_owner_authority)(recent_owner_authority)(extensions) );
 FC_REFLECT( steemit::chain::change_recovery_account_operation, (account_to_recover)(new_recovery_account)(extensions) );
+
+FC_REFLECT( steemit::chain::change_will_operation, (benefactor)(active_proof_duration)(owner_proof_duration) );
+FC_REFLECT( steemit::chain::change_will_item_operation, (benefactor)(will_item_id)(beneficiary_authority)(waiting_period)(percent) );
+FC_REFLECT( steemit::chain::full_beneficiary_claim_operation, (benefactor)(will_item_id)(beneficiary_authority)(new_owner_authority) );
+FC_REFLECT( steemit::chain::partial_beneficiary_claim_operation, (benefactor)(will_item_id)(beneficiary_authority)(claim_account) );
+FC_REFLECT( steemit::chain::change_inheritance_owner_operation, (inheritance_id)(current_owner)(new_owner) );
+FC_REFLECT( steemit::chain::merge_inheritance_operation, (inheritance_id)(current_owner) );

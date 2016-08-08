@@ -2312,6 +2312,447 @@ void database::account_recovery_processing()
    }
 }
 
+bool database::is_account_inactive( const account_object& acct )
+{
+   auto current_time = head_block_time();
+
+   if( (acct.last_active_proved + acct.active_proof_duration) < current_time )
+      return true;
+
+   if( (acct.last_owner_proved + acct.owner_proof_duration) < current_time )
+      return true;
+
+   return false;
+}
+
+
+void database::remove_beneficiary_claims_on_account( const account_object& acct )
+{
+   auto benefactor_id = acct.get_id();
+   
+   const auto& fbc_idx = get_index_type< full_beneficiary_claim_index >().indices().get< by_benefactor_will_item >();
+   auto fbc_itr = fbc_idx.lower_bound( boost::make_tuple(benefactor_id, will_item_id_type()) );
+   while( fbc_itr != fbc_idx.end() && fbc_itr->associated_benefactor == benefactor_id )
+   {
+      const auto& current = *fbc_itr;
+      ++fbc_itr;
+      remove( current );
+   }
+
+   const auto& pbc_idx = get_index_type< partial_beneficiary_claim_index >().indices().get< by_benefactor_will_item >();
+   auto pbc_itr = pbc_idx.lower_bound( boost::make_tuple(benefactor_id, will_item_id_type()) );
+   while( pbc_itr != pbc_idx.end() && pbc_itr->associated_benefactor == benefactor_id )
+   {
+      const auto& current = *pbc_itr;
+      ++pbc_itr;
+      remove( current );
+   }
+}
+
+
+void database::owner_authority_proved( const account_object& acct )
+{
+   auto current_time = head_block_time();
+   auto was_inactive = is_account_inactive( acct );
+
+   modify( acct, [&]( account_object& a )
+   {
+      a.owner_challenged = false;
+      a.last_owner_proved = current_time;
+      a.active_challenged = false;
+      a.last_active_proved = current_time;
+   });
+
+   if( was_inactive ) // There may potentially be existing beneficiary claims that need to be cleared
+      remove_beneficiary_claims_on_account( acct );
+}
+
+void database::active_authority_proved( const account_object& acct )
+{
+   auto current_time = head_block_time();
+   auto was_inactive = is_account_inactive( acct );   
+
+   modify( acct, [&]( account_object& a )
+   {
+      a.active_challenged = false;
+      a.last_active_proved = current_time;
+   });
+
+   if( was_inactive && !is_account_inactive(acct) ) // There may potentially be existing beneficiary claims that need to be cleared
+      remove_beneficiary_claims_on_account( acct );
+}
+
+void database::will_processing()
+{
+   if( !has_hardfork( STEEMIT_HARDFORK_0_13__240 ) )
+      return;
+
+   auto current_time = head_block_time();
+
+   flat_set< account_id_type > modified_accounts;
+
+   // Apply will contract changes
+   const auto& change_will_idx = get_index_type< change_will_index >().indices().get< by_effective_date >();
+   auto change_will = change_will_idx.begin();
+
+   while( change_will != change_will_idx.end() && change_will->effective_on <= current_time )
+   {
+      const auto& current = *change_will;
+      ++change_will;
+
+      modify( current.benefactor(*this), [&]( account_object& a )
+      {
+         a.active_proof_duration = current.new_active_proof_duration;
+         a.owner_proof_duration  = current.new_owner_proof_duration;
+
+         if( current.clear_will_items )
+         {
+            a.num_will_items = 0;
+            a.will_total_percent = 0;
+         }
+      });
+
+      modified_accounts.insert( current.benefactor );
+
+      if( current.clear_will_items ) // Clear all will items in this will contract
+      {
+         const auto& will_item_idx = get_index_type< will_item_index >().indices().get< by_benefactor_will_item_id >();
+         auto will_item = will_item_idx.lower_bound( boost::make_tuple(current.benefactor, 0) );
+         while( will_item != will_item_idx.end() && will_item->benefactor == current.benefactor )
+         {
+            const auto& will_item_to_remove = *will_item;
+            ++will_item;
+            remove( will_item_to_remove );
+         }
+      }
+
+      remove( current );
+   }
+
+   // Apply will item changes
+   const auto& change_will_item_idx = get_index_type< change_will_item_index >().indices().get< by_effective_date >();
+   auto change_will_item = change_will_item_idx.begin();
+
+   while( change_will_item != change_will_item_idx.end() && change_will_item->effective_on <= current_time )
+   {
+      const auto& current = *change_will_item;
+      ++change_will_item;
+
+      const auto& will_item_idx = get_index_type< will_item_index >().indices().get< by_benefactor_will_item_id >();
+      auto will_item = will_item_idx.find( boost::make_tuple(current.benefactor, current.will_item_id) );
+
+      bool successful_change = false;
+      const auto& benefactor = current.benefactor(*this);
+
+      if( current.new_percent == 0 && will_item != will_item_idx.end() ) // Remove will item
+      {
+         if( benefactor.num_will_items > 0 && benefactor.will_total_percent >= will_item->percent )
+         {
+            modify( benefactor, [&]( account_object& a )
+            {
+               a.num_will_items -= 1;
+               a.will_total_percent -= will_item->percent;
+            });
+            remove( *will_item ); 
+            successful_change = true;
+         }
+      }
+      else if( will_item == will_item_idx.end() ) // Create will item
+      {
+         if( benefactor.num_will_items < STEEMIT_MAX_WILL_ITEMS && (benefactor.will_total_percent + current.new_percent) <= STEEMIT_100_PERCENT )
+         {
+            create< will_item_object >( [&]( will_item_object& wi )
+            {
+               wi.benefactor            = current.benefactor;
+               wi.will_item_id          = current.will_item_id;
+               wi.beneficiary_authority = current.new_beneficiary_authority;
+               wi.waiting_period        = current.new_waiting_period;
+               wi.percent               = current.new_percent;        
+            });
+            modify( benefactor, [&]( account_object& a )
+            {
+               a.num_will_items += 1;
+               a.will_total_percent += current.new_percent;
+            });
+            successful_change = true;
+         }
+      }
+      else // Modify existing will item
+      {
+         if( (benefactor.will_total_percent - will_item->percent + current.new_percent) <= STEEMIT_100_PERCENT )
+         {
+            modify( *will_item, [&]( will_item_object& wi )
+            {
+               wi.beneficiary_authority = current.new_beneficiary_authority;
+               wi.waiting_period        = current.new_waiting_period;
+               wi.percent               = current.new_percent;
+            });
+            modify( benefactor, [&]( account_object& a )
+            {
+               a.will_total_percent = a.will_total_percent - will_item->percent + current.new_percent;
+            });
+            successful_change = true; 
+         }
+      }
+
+      if( successful_change )
+         modified_accounts.insert( current.benefactor );
+
+      remove( current );
+   }
+
+   // Process beneficiary claims
+   const auto& fbc_idx = get_index_type< full_beneficiary_claim_index >().indices().get< by_effective_date >();
+   const auto& pbc_idx = get_index_type< partial_beneficiary_claim_index >().indices().get< by_effective_date >();
+   auto fbc_itr = fbc_idx.begin();
+   auto pbc_itr = pbc_idx.begin();
+   bool more_fbc_exist = true;
+   bool more_pbc_exist = true;
+   
+   const dynamic_global_property_object& _dgp = dynamic_global_property_id_type(0)(*this);
+   uint64_t old_inheritance_id = _dgp.last_inheritance_id;
+   uint64_t last_inheritance_id = old_inheritance_id;
+
+   while( ( more_fbc_exist = more_fbc_exist && fbc_itr != fbc_idx.end() && fbc_itr->effective_on <= current_time ) ||
+          ( more_pbc_exist = more_pbc_exist && pbc_itr != pbc_idx.end() && pbc_itr->effective_on <= current_time )   )
+   {
+      if( more_fbc_exist && ( !more_pbc_exist || (fbc_itr->effective_on <= pbc_itr->effective_on) ) )
+      {
+         // Process fbc for this iteration
+         const auto& current = *fbc_itr;
+         ++fbc_itr;
+
+         if( modified_accounts.find(current.associated_benefactor) == modified_accounts.end() )
+         {
+            // This full beneficiary claim has been activated.
+            const auto& benefactor = current.associated_benefactor(*this);
+            
+            update_owner_authority( benefactor, current.new_owner_authority );
+            
+            modify( benefactor, [&]( account_object& a )
+            {
+               a.last_owner_proved = current_time;
+               a.last_active_proved = current_time;
+               a.owner_challenged  = true;
+               a.active_challenged = true; 
+               // Safer to set owner_challenged and active_challenged to true so that the old active and posting authorities
+               // cannot do any damage until the new owner changes the authorities (thus reset active_challenged to false).
+               // The new owner can also prove owner authority to reset owner_challenge to false.
+               // TODO: Currently owner_challenged == true does not prevent actions that require active authority, such as
+               // transfering funds, changing withdraw options, etc., but I really think that it should. 
+            });
+
+            // Clear owner authority history for benefactor
+            const auto& owner_auth_hist_idx = get_index_type< owner_authority_history_index >().indices().get< by_account >();
+            auto hist = owner_auth_hist_idx.lower_bound( benefactor.name );
+            while( hist != owner_auth_hist_idx.end() && hist->account == benefactor.name )
+            {
+               const auto& hist_to_remove = *hist;
+               ++hist;
+               remove( hist_to_remove );
+            }
+
+            modified_accounts.insert( current.associated_benefactor );
+         }
+
+         remove( current );
+      }
+      else
+      {
+         // Process pbc for this iteration
+         const auto& current = *pbc_itr;
+         ++pbc_itr;
+
+         if( modified_accounts.find(current.associated_benefactor) == modified_accounts.end() )
+         {
+            // This partial beneficiary claim has been activated, which triggers an inheritance event.
+            const auto& benefactor = current.associated_benefactor(*this);
+            auto benefactor_id = benefactor.get_id();
+
+            authority final_inheritor_authority;
+
+            // Find the set of all partial claims associated with this benefactor
+            vector< std::tuple< account_id_type, uint16_t, uint16_t > > partial_claims;
+            flat_map< account_id_type, uint16_t > claim_accounts;
+            uint16_t total_claimed_percent = 0;
+            const auto& pbc_idx1 = get_index_type< partial_beneficiary_claim_index >().indices().get< by_benefactor_will_item >();
+            auto pbc_itr1 = pbc_idx1.lower_bound( boost::make_tuple(benefactor_id, will_item_id_type()) );
+            while( pbc_itr1 != pbc_idx1.end() && pbc_itr1->associated_benefactor == benefactor_id )
+            {
+               try
+               {
+                  const auto& claim_account = get_account( pbc_itr1->claim_account );
+                  auto claim_account_id = claim_account.get_id();
+                  const auto& will_item = pbc_itr1->associated_will_item(*this);
+                  
+                  auto itr = claim_accounts.find( claim_account_id );
+                  if( itr == claim_accounts.end() )
+                  {
+                     claim_accounts[ claim_account_id ] = partial_claims.size();
+                     partial_claims.push_back( std::make_tuple( claim_account_id, will_item.percent, will_item.will_item_id ) );
+                  }
+                  else
+                  {
+                     auto indx = claim_accounts[ claim_account_id ];
+                     const auto& v = partial_claims[indx];
+                     partial_claims[indx] = std::make_tuple( claim_account_id, (std::get<1>(v) + will_item.percent), std::min(std::get<2>(v), will_item.will_item_id) );
+                  }
+                  total_claimed_percent += will_item.percent;
+               } catch ( ... ) { continue; } // Skip over this claim, if the account name is no longer valid (i.e. it was deleted prior to the inheritance event)
+            }
+            std::sort( partial_claims.begin(), partial_claims.end(), [&]( const decltype(partial_claims)::value_type& a, const decltype(partial_claims)::value_type& b )
+            {
+               if( std::get<1>(a) < std::get<1>(b) ) // First sort by percent
+                  return true;
+               else if( std::get<1>(a) > std::get<1>(b) )
+                  return false;
+               else
+                  return std::get<2>(a) > std::get<2>(b); // Then break ties using the will item id.
+            });
+
+            // Find the earliest activating full beneficiary claim associated with this benefactor (if any) to choose as the final inheritor of the account.
+            const auto& fbc_idx1 = get_index_type< full_beneficiary_claim_index >().indices().get< by_benefactor_effective_date >();
+            auto fbc_itr1 = fbc_idx1.lower_bound( boost::make_tuple(benefactor_id, time_point_sec::min()) );
+            if( fbc_itr1 != fbc_idx1.end() && fbc_itr1->associated_benefactor == benefactor_id )
+            {
+               // Found the full beneficiary claim to choose as final inheritor
+               final_inheritor_authority = fbc_itr1->new_owner_authority;
+            }
+            else
+            {
+               // Could not find any full beneficiary claims. 
+               // Use partial beneficiary claim with highest percent as final inheritor instead.
+               const auto& final_inheritor_account = std::get<0>(partial_claims.back())(*this);
+               total_claimed_percent -= std::get<1>(partial_claims.back());
+               final_inheritor_authority = final_inheritor_account.owner; // Use the inheritor account's owner authority since they weren't able to specify a custom one.
+               partial_claims.pop_back();
+            }
+
+            // Distribute STEEM and SD and also create appropriate inheritance object for each account in partial_claims.
+            auto orig_vests  = benefactor.vesting_shares;
+            auto orig_steem  = benefactor.balance;
+            auto orig_sbd    = benefactor.sbd_balance;
+            for( auto itr = partial_claims.begin(); itr != partial_claims.end(); ++itr )
+            {
+               const auto& beneficiary = std::get<0>(*itr)(*this);
+               uint16_t claim_percent = ( uint32_t(std::get<1>(*itr)) * STEEMIT_100_PERCENT ) / ( STEEMIT_100_PERCENT + total_claimed_percent - benefactor.will_total_percent );
+               auto vests_claim = asset( ( ( uint128_t(orig_vests.amount.value) * claim_percent ) / STEEMIT_100_PERCENT ).to_uint64(), VESTS_SYMBOL );
+               auto steem_claim = asset( ( ( uint128_t(orig_steem.amount.value) * claim_percent ) / STEEMIT_100_PERCENT ).to_uint64(), STEEM_SYMBOL );
+               auto sbd_claim   = asset( ( ( uint128_t(orig_sbd.amount.value)   * claim_percent ) / STEEMIT_100_PERCENT ).to_uint64(), SBD_SYMBOL   );
+
+               // TODO: Move to time-locked savings instead (when that feature is available).
+               adjust_balance( benefactor,  -steem_claim );
+               adjust_balance( beneficiary,  steem_claim );
+
+               // TODO: Move to time-locked savings instead (when that feature is available). Also, how should SD interest be handled? Currently it all goes to final inheritor.
+               adjust_balance( benefactor,  -sbd_claim );
+               adjust_balance( beneficiary,  sbd_claim );
+
+               modify( benefactor, [&]( account_object& a )
+               {
+                  a.vesting_shares -= vests_claim;
+               });
+               adjust_proxied_witness_votes( benefactor, -vests_claim.amount );
+            
+               // Create inheritance object for beneficary
+               ++last_inheritance_id;
+               create< inheritance_object >( [&]( inheritance_object& i )
+               {
+                  i.inheritance_id = last_inheritance_id;
+                  i.owner          = beneficiary.get_id();
+                  i.vesting_shares = vests_claim;
+                  i.created        = current_time;
+               });
+            }
+
+            update_owner_authority( benefactor, final_inheritor_authority );
+            
+            modify( benefactor, [&]( account_object& a )
+            {
+               a.last_owner_proved = current_time;
+               a.last_active_proved = current_time;
+               a.owner_challenged  = true;
+               a.active_challenged = true; 
+               // Safer to set owner_challenged and active_challenged to true so that the old active and posting authorities
+               // cannot do any damage until the new owner changes the authorities (thus reset active_challenged to false).
+               // The new owner can also prove owner authority to reset owner_challenge to false.
+               // TODO: Currently owner_challenged == true does not prevent actions that require active authority, such as
+               // transfering funds, changing withdraw options, etc., but I really think that it should. 
+            });
+
+            // Clear owner authority history for benefactor
+            const auto& owner_auth_hist_idx = get_index_type< owner_authority_history_index >().indices().get< by_account >();
+            auto hist = owner_auth_hist_idx.lower_bound( benefactor.name );
+            while( hist != owner_auth_hist_idx.end() && hist->account == benefactor.name )
+            {
+               const auto& hist_to_remove = *hist;
+               ++hist;
+               remove( hist_to_remove );
+            }
+
+            modified_accounts.insert( current.associated_benefactor );
+         }
+
+         remove( current );
+ 
+      }
+   }
+
+   if( last_inheritance_id != old_inheritance_id )
+   {
+      FC_ASSERT( last_inheritance_id > old_inheritance_id ); // 64-bit integer means there shouldn't be any concern of overflow.
+                                                             // So this assertion should always be true.
+      
+      modify( _dgp, [&]( dynamic_global_property_object& dgp )
+      {
+         dgp.last_inheritance_id = last_inheritance_id;
+      });
+   }
+
+   // Remove any existing beneficiary claims associated with a benefactor in modified_accounts
+   const auto& fbc_idx2 = get_index_type< full_beneficiary_claim_index >().indices().get< by_benefactor_will_item >();
+   const auto& pbc_idx2 = get_index_type< partial_beneficiary_claim_index >().indices().get< by_benefactor_will_item >();
+   for( auto itr = modified_accounts.begin(); itr != modified_accounts.end(); ++itr )
+   {
+      auto fbc_itr = fbc_idx2.lower_bound( boost::make_tuple(*itr, will_item_id_type()) );
+      while( fbc_itr != fbc_idx2.end() && fbc_itr->associated_benefactor == *itr )
+      {
+         const auto& current = *fbc_itr;
+         ++fbc_itr;
+         remove( current );
+      }
+
+      auto pbc_itr = pbc_idx2.lower_bound( boost::make_tuple(*itr, will_item_id_type()) );
+      while( pbc_itr != pbc_idx2.end() && pbc_itr->associated_benefactor == *itr )
+      {
+         const auto& current = *pbc_itr;
+         ++pbc_itr;
+         remove( current );
+      }
+   }  
+
+   // Apply inheritance owner changes
+   const auto& change_inheritance_owner_idx = get_index_type< change_inheritance_owner_index >().indices().get< by_effective_date >();
+   auto change_inheritance_owner = change_inheritance_owner_idx.begin();
+
+   while( change_inheritance_owner != change_inheritance_owner_idx.end() && change_inheritance_owner->effective_on <= current_time )
+   {
+      const auto& current = *change_inheritance_owner;
+      ++change_inheritance_owner;
+
+      try {
+         const auto& new_owner = get_account( current.new_owner );
+
+         modify( current.inheritance_object_to_change(*this), [&]( inheritance_object& i )
+         {
+            i.owner = new_owner.get_id();
+         });
+      } catch( ... ) {} // Ignore ownership change of inheritance object if new_owner account no longer exists.
+
+      remove( current );
+   }
+}
+
 const dynamic_global_property_object&database::get_dynamic_global_properties() const
 {
    return get( dynamic_global_property_id_type() );
@@ -2380,6 +2821,13 @@ void database::initialize_evaluators()
     _my->_evaluator_registry.register_evaluator<escrow_transfer_evaluator>();
     _my->_evaluator_registry.register_evaluator<escrow_dispute_evaluator>();
     _my->_evaluator_registry.register_evaluator<escrow_release_evaluator>();
+
+    _my->_evaluator_registry.register_evaluator<change_will_evaluator>(); 
+    _my->_evaluator_registry.register_evaluator<change_will_item_evaluator>();
+    _my->_evaluator_registry.register_evaluator<full_beneficiary_claim_evaluator>();
+    _my->_evaluator_registry.register_evaluator<partial_beneficiary_claim_evaluator>();
+    _my->_evaluator_registry.register_evaluator<change_inheritance_owner_evaluator>();
+    _my->_evaluator_registry.register_evaluator<merge_inheritance_evaluator>();
 }
 
 void database::set_custom_json_evaluator( const std::string& id, std::shared_ptr< generic_json_evaluator_registry > registry )
@@ -2427,6 +2875,13 @@ void database::initialize_indexes()
    add_index< primary_index< owner_authority_history_index                 > >();
    add_index< primary_index< account_recovery_request_index                > >();
    add_index< primary_index< change_recovery_account_request_index         > >();
+   add_index< primary_index< will_item_index                               > >(); 
+   add_index< primary_index< inheritance_index                             > >();
+   add_index< primary_index< full_beneficiary_claim_index                  > >();
+   add_index< primary_index< partial_beneficiary_claim_index               > >();
+   add_index< primary_index< change_will_index                             > >();
+   add_index< primary_index< change_will_item_index                        > >();
+   add_index< primary_index< change_inheritance_owner_index                > >();
 }
 
 void database::init_genesis( uint64_t init_supply )
@@ -2658,6 +3113,7 @@ void database::_apply_block( const signed_block& next_block )
    update_virtual_supply();
 
    account_recovery_processing();
+   will_processing();
 
    process_hardforks();
 

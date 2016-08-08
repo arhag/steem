@@ -34,5 +34,11 @@ DEFINE_EVALUATOR( prove_authority )
 DEFINE_EVALUATOR( request_account_recovery )
 DEFINE_EVALUATOR( recover_account )
 DEFINE_EVALUATOR( change_recovery_account )
+DEFINE_EVALUATOR( change_will )
+DEFINE_EVALUATOR( change_will_item )
+DEFINE_EVALUATOR( full_beneficiary_claim )
+DEFINE_EVALUATOR( partial_beneficiary_claim )
+DEFINE_EVALUATOR( change_inheritance_owner )
+DEFINE_EVALUATOR( merge_inheritance )
 
 } } // steemit::chain

@@ -153,10 +153,13 @@ void account_update_evaluator::do_apply( const account_update_operation& o )
       if( o.memo_key != public_key_type() )
             acc.memo_key = o.memo_key;
 
-      if( ( o.active || o.owner ) && acc.active_challenged )
+      if( !db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) )
       {
-         acc.active_challenged = false;
-         acc.last_active_proved = db().head_block_time();
+         if( ( o.active || o.owner ) && acc.active_challenged )
+         {
+            acc.active_challenged = false;
+            acc.last_active_proved = db().head_block_time();
+         }
       }
 
       #ifndef IS_LOW_MEM
@@ -165,6 +168,13 @@ void account_update_evaluator::do_apply( const account_update_operation& o )
       #endif
    });
 
+   if( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) )
+   {
+      if( o.owner )
+         db().owner_authority_proved( account );
+      else // Assumes that it is not possible to update account without at least active authority.
+         db().active_authority_proved( account );
+   }
 }
 
 
@@ -539,13 +549,16 @@ void transfer_evaluator::do_apply( const transfer_operation& o )
    const auto& from_account = db().get_account(o.from);
    const auto& to_account = db().get_account(o.to);
 
-   if( from_account.active_challenged )
+   if( !db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) )
    {
-      db().modify( from_account, [&]( account_object& a )
+      if( from_account.active_challenged )
       {
-         a.active_challenged = false;
-         a.last_active_proved = db().head_block_time();
-      });
+         db().modify( from_account, [&]( account_object& a )
+         {
+            a.active_challenged = false;
+            a.last_active_proved = db().head_block_time();
+         });
+      }
    }
 
    if( o.amount.symbol != VESTS_SYMBOL ) {
@@ -593,17 +606,25 @@ void transfer_evaluator::do_apply( const transfer_operation& o )
       });
 #endif
    }
+
+   if( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) )
+      db().active_authority_proved( from_account );
 }
 
 void transfer_to_vesting_evaluator::do_apply( const transfer_to_vesting_operation& o )
 {
    const auto& from_account = db().get_account(o.from);
    const auto& to_account = o.to.size() ? db().get_account(o.to) : from_account;
-
+ 
    FC_ASSERT( db().get_balance( from_account, STEEM_SYMBOL) >= o.amount );
    db().adjust_balance( from_account, -o.amount );
    db().create_vesting( to_account, o.amount );
+
+   if( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) )
+      db().active_authority_proved( from_account );
 }
+
+
 
 void withdraw_vesting_evaluator::do_apply( const withdraw_vesting_operation& o )
 {
@@ -1400,18 +1421,13 @@ void challenge_authority_evaluator::do_apply( const challenge_authority_operatio
 void prove_authority_evaluator::do_apply( const prove_authority_operation& o )
 {
    const auto& challenged = db().get_account( o.challenged );
-   FC_ASSERT( challenged.owner_challenged || challenged.active_challenged );
+   if( !db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) )
+      FC_ASSERT( challenged.owner_challenged || challenged.active_challenged );
 
-   db().modify( challenged, [&]( account_object& a )
-   {
-      a.active_challenged = false;
-      a.last_active_proved = db().head_block_time();
-      if( o.require_owner )
-      {
-         a.owner_challenged = false;
-         a.last_owner_proved = db().head_block_time();
-      }
-   });
+   if( o.require_owner )
+      db().owner_authority_proved( challenged );
+   else
+      db().active_authority_proved( challenged );
 }
 
 void request_account_recovery_evaluator::do_apply( const request_account_recovery_operation& o )
@@ -1524,6 +1540,214 @@ void change_recovery_account_evaluator::do_apply( const change_recovery_account_
    {
       db().remove( *request );
    }
+
+   if( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) )
+      db().owner_authority_proved( account_to_recover );
+}
+
+void change_will_evaluator::do_apply( const change_will_operation& o )
+{
+   FC_ASSERT( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) );
+
+   const auto& benefactor = db().get_account( o.benefactor );
+   auto benefactor_id = benefactor.get_id();
+   const auto& change_will_idx = db().get_index_type< change_will_index >().indices().get< by_benefactor >();
+   auto pending_will_change = change_will_idx.find( benefactor_id );
+
+   if( pending_will_change != change_will_idx.end() ) // First deal with existing pending will change
+   {
+      db().remove( *pending_will_change );
+
+      if( o.owner_proof_duration == 0 )
+         return; // Only need to cancel. Do not create new pending will change. 
+   }
+
+   db().create< change_will_object >( [&]( change_will_object& cw )
+   {
+      cw.benefactor                = benefactor_id;
+      cw.new_active_proof_duration = o.active_proof_duration; 
+      cw.new_owner_proof_duration  = o.owner_proof_duration;
+      cw.clear_will_items          = o.clear_will_items;
+      cw.effective_on              = db().head_block_time() + STEEMIT_WILL_CHANGE_PERIOD;
+   });
+
+   db().owner_authority_proved( benefactor );
+}
+
+void change_will_item_evaluator::do_apply( const change_will_item_operation& o )
+{
+   FC_ASSERT( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) );
+ 
+   const auto& benefactor = db().get_account( o.benefactor );
+   auto benefactor_id = benefactor.get_id();
+ 
+   const auto& change_will_item_idx = db().get_index_type< change_will_item_index >().indices().get< by_benefactor_will_item_id >();
+   auto pending_will_item_change = change_will_item_idx.find( boost::make_tuple(benefactor_id, o.will_item_id) );
+
+   if( pending_will_item_change != change_will_item_idx.end() ) // First deal with existing pending will item change
+   {
+      db().remove( *pending_will_item_change );
+
+      if( o.waiting_period == 0 )
+         return; // Only need to cancel. Do not create new pending will item change. 
+   }
+
+   db().create< change_will_item_object >( [&]( change_will_item_object& cwi )
+   {
+      cwi.benefactor                = benefactor_id;
+      cwi.will_item_id              = o.will_item_id;
+      cwi.new_beneficiary_authority = o.beneficiary_authority; 
+      cwi.new_waiting_period        = o.waiting_period;
+      cwi.new_percent               = o.percent;
+      cwi.effective_on              = db().head_block_time() + STEEMIT_WILL_CHANGE_PERIOD;
+   });
+
+   db().owner_authority_proved( benefactor );
+}
+
+void full_beneficiary_claim_evaluator::do_apply( const full_beneficiary_claim_operation& o )
+{
+   FC_ASSERT( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) );
+
+   const auto& benefactor = db().get_account( o.benefactor );
+   auto benefactor_id = benefactor.get_id();
+   FC_ASSERT( db().is_account_inactive( benefactor ), "Benefactor account must be inactive to make beneficiary claim" );
+
+   const auto& will_item_idx = db().get_index_type< will_item_index >().indices().get< by_benefactor_will_item_id >();
+   auto will_item = will_item_idx.find( boost::make_tuple( benefactor.get_id(), o.will_item_id ) );
+   FC_ASSERT( will_item != will_item_idx.end(), "Invalid will item ID for specified benefactor", 
+                                                ("benefactor", o.benefactor)("will_item_id", o.will_item_id) );
+   FC_ASSERT( will_item->beneficiary_authority == o.beneficiary_authority, "Specified beneficiary authority does not match one in will item",
+                ("true beneficiary_authority", will_item->beneficiary_authority)("specified beneficiary_authority", o.beneficiary_authority) );
+   FC_ASSERT( will_item->percent == STEEMIT_100_PERCENT, 
+             "Cannot make full beneficiary claim when associated will item does not have a percent field equal to 100%",
+                             ("benefactor", o.benefactor)("will_item_id", o.will_item_id)("percent", will_item->percent) );
+   const auto& wi = *will_item;
+   auto will_item_id = wi.get_id();
+
+   const auto& fbc_idx = db().get_index_type< full_beneficiary_claim_index >().indices().get< by_will_item >();
+   auto existing_claim = fbc_idx.find( will_item_id );
+
+   if( existing_claim != fbc_idx.end() ) // First deal with existing claim
+   {
+      db().remove( *existing_claim );
+
+      if( !o.new_owner_authority )
+         return; // Only need to cancel. Do not create new beneficiary claim. 
+   }
+
+   db().create< full_beneficiary_claim_object >( [&]( full_beneficiary_claim_object& fbc )
+   {
+      fbc.associated_benefactor     = benefactor_id;
+      fbc.associated_will_item      = will_item_id;
+      fbc.new_owner_authority       = *o.new_owner_authority;
+      fbc.effective_on              = db().head_block_time() + fc::seconds(will_item->waiting_period);
+   });
+}
+
+void partial_beneficiary_claim_evaluator::do_apply( const partial_beneficiary_claim_operation& o )
+{
+   FC_ASSERT( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) );
+   
+   const auto& benefactor = db().get_account( o.benefactor );
+   auto benefactor_id = benefactor.get_id();
+   FC_ASSERT( db().is_account_inactive( benefactor ), "Benefactor account must be inactive to make beneficiary claim" );
+
+   const auto& will_item_idx = db().get_index_type< will_item_index >().indices().get< by_benefactor_will_item_id >();
+   auto will_item = will_item_idx.find( boost::make_tuple( benefactor.get_id(), o.will_item_id ) );
+   FC_ASSERT( will_item != will_item_idx.end(), "Invalid will item ID for specified benefactor", 
+                                                ("benefactor", o.benefactor)("will_item_id", o.will_item_id) );
+   FC_ASSERT( will_item->beneficiary_authority == o.beneficiary_authority, "Specified beneficiary authority does not match one in will item",
+                ("true beneficiary_authority", will_item->beneficiary_authority)("specified beneficiary_authority", o.beneficiary_authority) );
+   FC_ASSERT( will_item->percent < STEEMIT_100_PERCENT, 
+             "Cannot make partial beneficiary claim when associated will item has a percent field strictly less than 100%",
+                             ("benefactor", o.benefactor)("will_item_id", o.will_item_id)("percent", will_item->percent) );
+   auto will_item_id = will_item->get_id();
+
+   const auto& pbc_idx = db().get_index_type< partial_beneficiary_claim_index >().indices().get< by_will_item >();
+   auto existing_claim = pbc_idx.find( will_item_id );
+
+   if( existing_claim != pbc_idx.end() ) // First deal with existing claim
+   {
+      db().remove( *existing_claim );
+
+      if( o.claim_account == "" )
+         return; // Only need to cancel. Do not create new beneficiary claim. 
+   }
+
+   db().create< partial_beneficiary_claim_object >( [&]( partial_beneficiary_claim_object& pbc )
+   {
+      pbc.associated_benefactor     = benefactor_id;
+      pbc.associated_will_item      = will_item_id;
+      pbc.claim_account             = o.claim_account;
+      pbc.effective_on              = db().head_block_time() + fc::seconds(will_item->waiting_period);
+   });
+   
+   db().active_authority_proved( db().get_account(o.claim_account) ); 
+   // TODO: I need to add this (with hardfork guards ) to all the other operations that prove active authority.
+   // Perhaps this might be better to do at the verify_authority code?
+   // Is the fact that the head_block_time is used as the prove time a problem considering expiration times of transactions?
+}
+
+void change_inheritance_owner_evaluator::do_apply( const change_inheritance_owner_operation& o )
+{
+   FC_ASSERT( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) );
+
+   const auto& inheritance_idx = db().get_index_type< inheritance_index >().indices().get< by_inheritance_id >();
+   auto inheritance = inheritance_idx.find( o.inheritance_id );
+   FC_ASSERT( inheritance != inheritance_idx.end(), "No such inheritance object exists", 
+                                                    ("inheritance_id", o.inheritance_id) );
+   const auto& current_owner = db().get_account( o.current_owner );
+   FC_ASSERT( inheritance->owner == current_owner.get_id(), "Given current_owner is not the actual owner of the specified inheritance object",
+                                                                        ("inheritance_id", o.inheritance_id)("current_owner", o.current_owner) );
+   const auto& i = *inheritance;
+   auto inheritance_id = i.get_id();
+  
+   if( o.new_owner != "" )
+      db().get_account( o.new_owner ); // Just check that the new_owner account actually exists
+   
+   const auto& change_inheritance_owner_idx = db().get_index_type< change_inheritance_owner_index >().indices().get< by_inheritance >();
+   auto pending_inheritance_owner_change = change_inheritance_owner_idx.find( inheritance_id );
+
+   if( pending_inheritance_owner_change != change_inheritance_owner_idx.end() ) // First deal with existing pending inheritance owner change
+   {
+      db().remove( *pending_inheritance_owner_change );
+
+      if( o.new_owner == "" )
+         return; // Only need to cancel. Do not create new pending inheritance owner change. 
+   }
+
+   db().create< change_inheritance_owner_object >( [&]( change_inheritance_owner_object& cio )
+   {
+      cio.inheritance_object_to_change = inheritance_id;
+      cio.new_owner                    = o.new_owner; 
+      cio.effective_on                 = db().head_block_time() + STEEMIT_INHERITANCE_CHANGE_PERIOD;
+   });
+
+   db().owner_authority_proved( current_owner );
+}
+
+void merge_inheritance_evaluator::do_apply( const merge_inheritance_operation& o )
+{
+   FC_ASSERT( db().has_hardfork( STEEMIT_HARDFORK_0_13__240 ) );
+
+   const auto& inheritance_idx = db().get_index_type< inheritance_index >().indices().get< by_inheritance_id >();
+   auto inheritance = inheritance_idx.find( o.inheritance_id );
+   FC_ASSERT( inheritance != inheritance_idx.end(), "No such inheritance object exists", 
+                                                    ("inheritance_id", o.inheritance_id) );
+   const auto& current_owner = db().get_account( o.current_owner );
+   FC_ASSERT( inheritance->owner == current_owner.get_id(), "Given current_owner is not the actual owner of the specified inheritance object",
+                                                                        ("inheritance_id", o.inheritance_id)("current_owner", o.current_owner) );
+   FC_ASSERT( inheritance->created + STEEMIT_INHERITANCE_MATURITY_DURATION_TO_MERGE < db().head_block_time(), 
+                     "Inheritance object has not yet matured to be merged", ("created", inheritance->created) );
+
+   db().modify( current_owner, [&]( account_object& a )
+   {
+         a.vesting_shares += inheritance->vesting_shares;
+   });
+   db().adjust_proxied_witness_votes( current_owner, inheritance->vesting_shares.amount ); 
+
+   db().remove( *inheritance );
 }
 
 } } // steemit::chain
