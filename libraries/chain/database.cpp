@@ -2446,12 +2446,13 @@ void database::will_processing()
 
       if( current.new_percent == 0 && will_item != will_item_idx.end() ) // Remove will item
       {
-         if( benefactor.num_will_items > 0 && benefactor.will_total_percent >= will_item->percent )
+         uint16_t old_percent = (will_item->percent == STEEMIT_100_PERCENT) ? 0 : will_item->percent;
+         if( benefactor.num_will_items > 0 && benefactor.will_total_percent >= old_percent )
          {
             modify( benefactor, [&]( account_object& a )
             {
                a.num_will_items -= 1;
-               a.will_total_percent -= will_item->percent;
+               a.will_total_percent -= old_percent;
             });
             remove( *will_item ); 
             successful_change = true;
@@ -2459,7 +2460,8 @@ void database::will_processing()
       }
       else if( will_item == will_item_idx.end() ) // Create will item
       {
-         if( benefactor.num_will_items < STEEMIT_MAX_WILL_ITEMS && (benefactor.will_total_percent + current.new_percent) <= STEEMIT_100_PERCENT )
+         uint16_t new_percent = (current.new_percent == STEEMIT_100_PERCENT) ? 0 : current.new_percent;
+         if( benefactor.num_will_items < STEEMIT_MAX_WILL_ITEMS && (benefactor.will_total_percent + new_percent) <= STEEMIT_100_PERCENT )
          {
             create< will_item_object >( [&]( will_item_object& wi )
             {
@@ -2472,14 +2474,16 @@ void database::will_processing()
             modify( benefactor, [&]( account_object& a )
             {
                a.num_will_items += 1;
-               a.will_total_percent += current.new_percent;
+               a.will_total_percent += new_percent;
             });
             successful_change = true;
          }
       }
       else // Modify existing will item
       {
-         if( (benefactor.will_total_percent - will_item->percent + current.new_percent) <= STEEMIT_100_PERCENT )
+         uint16_t old_percent = (will_item->percent == STEEMIT_100_PERCENT) ? 0 : will_item->percent;
+         uint16_t new_percent = (current.new_percent == STEEMIT_100_PERCENT) ? 0 : current.new_percent;
+         if( (benefactor.will_total_percent - old_percent + new_percent) <= STEEMIT_100_PERCENT )
          {
             modify( *will_item, [&]( will_item_object& wi )
             {
@@ -2489,7 +2493,7 @@ void database::will_processing()
             });
             modify( benefactor, [&]( account_object& a )
             {
-               a.will_total_percent = a.will_total_percent - will_item->percent + current.new_percent;
+               a.will_total_percent = a.will_total_percent - old_percent + new_percent;
             });
             successful_change = true; 
          }
