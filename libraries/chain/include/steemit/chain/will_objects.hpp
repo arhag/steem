@@ -272,7 +272,7 @@ FC_REFLECT_DERIVED( steemit::chain::inheritance_object, (graphene::db::object),
                     (inheritance_id)(owner)(vesting_shares)(created)
                   )
 FC_REFLECT_DERIVED( steemit::chain::full_beneficiary_claim_object, (graphene::db::object), 
-                    (associated_benefactor)(associated_will_item)(effective_on)
+                    (associated_benefactor)(associated_will_item)(new_owner_authority)(effective_on)
                   )
 FC_REFLECT_DERIVED( steemit::chain::partial_beneficiary_claim_object, (graphene::db::object), 
                     (associated_benefactor)(associated_will_item)(claim_account)(effective_on)

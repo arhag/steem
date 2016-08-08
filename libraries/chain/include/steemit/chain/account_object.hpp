@@ -370,6 +370,7 @@ FC_REFLECT_DERIVED( steemit::chain::account_object, (graphene::db::object),
                     (average_market_bandwidth)(last_market_bandwidth_update)
                     (last_post)(last_root_post)(post_bandwidth)
                     (last_active)(activity_shares)(last_activity_payout)
+                    (active_proof_duration)(owner_proof_duration)(num_will_items)(will_total_percent)
                   )
 
 FC_REFLECT_DERIVED( steemit::chain::owner_authority_history_object, (graphene::db::object),
