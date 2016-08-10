@@ -159,6 +159,9 @@ void account_update_evaluator::do_apply( const account_update_operation& o )
          acc.last_active_proved = db().head_block_time();
       }
 
+      if( o.active )
+         acc.last_active_update = db().head_block_time();
+
       #ifndef IS_LOW_MEM
         if ( o.json_metadata.size() > 0 )
             acc.json_metadata = o.json_metadata;
@@ -1182,6 +1185,9 @@ void pow_evaluator::do_apply( const pow_operation& o )
    const auto& accounts_by_name = db().get_index_type<account_index>().indices().get<by_name>();
    auto itr = accounts_by_name.find(o.worker_account);
    if(itr == accounts_by_name.end()) {
+      if( db().is_producing() )
+         FC_ASSERT( false, "creating a new account via mining is temporarily disabled" );
+
       db().create< account_object >( [&]( account_object& acc )
       {
          acc.name = o.worker_account;
@@ -1204,6 +1210,8 @@ void pow_evaluator::do_apply( const pow_operation& o )
    FC_ASSERT( worker_account.active.key_auths.size() == 1, "miners may only have one key auth" );
    FC_ASSERT( worker_account.active.key_auths.begin()->first == o.work.worker, "work must be performed by key that signed the work" );
    FC_ASSERT( o.block_id == db().head_block_id() );
+   if( db().is_producing() )
+      FC_ASSERT( worker_account.last_active_update < db().head_block_time(), "worker account must not have updated their account this block" );
 
    fc::sha256 target = db().get_pow_target();
 
