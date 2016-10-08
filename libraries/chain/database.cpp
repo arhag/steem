@@ -1740,15 +1740,14 @@ void database::process_vesting_withdrawals()
            itr != didx.end() && itr->from_account == from_account.id;
            ++itr )
       {
-         if( itr->auto_vest )
+         const auto& to_account = itr->to_account( *this );
+         if( itr->auto_vest && (to_account.vest_restricted_account == "" || to_account.vest_restricted_account == from_account.name) )
          {
             share_type to_deposit = ( ( fc::uint128_t ( to_withdraw.value ) * itr->percent ) / STEEMIT_100_PERCENT ).to_uint64();
             vests_deposited_as_vests += to_deposit;
 
             if( to_deposit > 0 )
             {
-               const auto& to_account = itr->to_account( *this );
-
                modify( to_account, [&]( account_object& a )
                {
                   a.vesting_shares.amount += to_deposit;
@@ -1765,10 +1764,9 @@ void database::process_vesting_withdrawals()
            itr != didx.end() && itr->from_account == from_account.id;
            ++itr )
       {
-         if( !itr->auto_vest )
+         const auto& to_account = itr->to_account( *this );
+         if( !itr->auto_vest || (to_account.vest_restricted_account != "" && to_account.vest_restricted_account != from_account.name) )
          {
-            const auto& to_account = itr->to_account( *this );
-
             share_type to_deposit = ( ( fc::uint128_t ( to_withdraw.value ) * itr->percent ) / STEEMIT_100_PERCENT ).to_uint64();
             vests_deposited_as_steem += to_deposit;
             auto converted_steem = asset( to_deposit, VESTS_SYMBOL ) * cprops.get_vesting_share_price();
@@ -2546,6 +2544,7 @@ void database::initialize_evaluators()
     _my->_evaluator_registry.register_evaluator<decline_voting_rights_evaluator>();
     _my->_evaluator_registry.register_evaluator<reset_account_evaluator>();
     _my->_evaluator_registry.register_evaluator<set_reset_account_evaluator>();
+    _my->_evaluator_registry.register_evaluator<change_vest_restricted_account_evaluator>();
 }
 
 void database::set_custom_json_evaluator( const std::string& id, std::shared_ptr< generic_json_evaluator_registry > registry )

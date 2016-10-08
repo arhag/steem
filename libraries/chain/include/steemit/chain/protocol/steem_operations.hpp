@@ -920,6 +920,17 @@ namespace steemit { namespace chain {
 
       void validate() const;
    };
+
+   struct change_vest_restricted_account_operation : public base_operation
+   {
+      string account;
+      string new_vest_restricted_account;
+
+      void get_required_active_authorities( flat_set< string >& a)const{ a.insert( account ); }
+
+      void validate()const;
+   };
+
 } } // steemit::chain
 
 
@@ -999,3 +1010,4 @@ FC_REFLECT( steemit::chain::request_account_recovery_operation, (recovery_accoun
 FC_REFLECT( steemit::chain::recover_account_operation, (account_to_recover)(new_owner_authority)(recent_owner_authority)(extensions) );
 FC_REFLECT( steemit::chain::change_recovery_account_operation, (account_to_recover)(new_recovery_account)(extensions) );
 FC_REFLECT( steemit::chain::decline_voting_rights_operation, (account)(decline) );
+FC_REFLECT( steemit::chain::change_vest_restricted_account_operation, (account)(new_vest_restricted_account) );

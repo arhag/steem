@@ -413,6 +413,14 @@ namespace steemit { namespace chain {
       FC_ASSERT( is_valid_account_name( account ) );
       FC_ASSERT( is_valid_account_name( reset_account ) );
    }
+   
+   void change_vest_restricted_account_operation::validate()const
+   {
+      validate_account_name( account );
+      if( new_vest_restricted_account != "" )
+         validate_account_name( new_vest_restricted_account );
+   }
+
 
 
 } } // steemit::chain

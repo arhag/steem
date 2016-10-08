@@ -713,6 +713,8 @@ void transfer_to_vesting_evaluator::do_apply( const transfer_to_vesting_operatio
    const auto& from_account = db().get_account(o.from);
    const auto& to_account = o.to.size() ? db().get_account(o.to) : from_account;
 
+   FC_ASSERT( to_account.vest_restricted_account == "" || to_account.vest_restricted_account == o.from, 
+              "from account not approved to transfer Steem Power directly to this to account" );
    FC_ASSERT( db().get_balance( from_account, STEEM_SYMBOL) >= o.amount, "account does not have sufficient STEEM for the transfer" );
    db().adjust_balance( from_account, -o.amount );
    db().create_vesting( to_account, o.amount );
@@ -1855,6 +1857,18 @@ void set_reset_account_evaluator::do_apply( const set_reset_account_operation& o
 
    db().modify( acnt, [&]( account_object& a ){
        a.reset_account = op.reset_account;
+   });
+}
+
+void change_vest_restricted_account_evaluator::do_apply( const change_vest_restricted_account_operation& op ) {
+   FC_ASSERT( false, "Change Vest Restricted Account Operation is currently disabled." );
+
+   const auto& acnt = db().get_account( op.account );
+   if( op.new_vest_restricted_account != "" )
+      db().get_account( op.new_vest_restricted_account );
+
+   db().modify( acnt, [&]( account_object& a ){
+       a.vest_restricted_account = op.new_vest_restricted_account;
    });
 }
 
