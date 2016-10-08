@@ -924,6 +924,15 @@ class wallet_api
       string decrypt_memo( string memo );
 
       annotated_signed_transaction decline_voting_rights( string account, bool decline, bool broadcast );
+
+      /**
+       *  Change the vest_restricted_account field of an account.
+       *
+       *  @param account - the account whose field will be changed
+       *  @param new_vest_restricted_account - the new string value for the field
+       */
+      annotated_signed_transaction change_vest_restricted_account( string account, string new_vest_restricted_account, bool broadcast );
+
 };
 
 struct plain_keys {
@@ -1016,6 +1025,7 @@ FC_API( steemit::wallet::wallet_api,
         (get_encrypted_memo)
         (decrypt_memo)
         (decline_voting_rights)
+        (change_vest_restricted_account)
 
         // private message api
         (send_private_message)

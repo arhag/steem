@@ -1995,6 +1995,21 @@ annotated_signed_transaction wallet_api::decline_voting_rights( string account, 
    return my->sign_transaction( tx, broadcast );
 }
 
+annotated_signed_transaction wallet_api::change_vest_restricted_account( string account, string new_vest_restricted_account, bool broadcast )
+{
+   FC_ASSERT( !is_locked() );
+   change_vest_restricted_account_operation op;
+   op.account = account;
+   op.new_vest_restricted_account = new_vest_restricted_account;
+
+   signed_transaction tx;
+   tx.operations.push_back( op );
+   tx.validate();
+
+   return my->sign_transaction( tx, broadcast );
+
+}
+
 map<uint32_t,operation_object> wallet_api::get_account_history( string account, uint32_t from, uint32_t limit ) {
    auto result = my->_remote_db->get_account_history(account,from,limit);
    if( !is_locked() ) {
