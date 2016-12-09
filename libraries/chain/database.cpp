@@ -1379,6 +1379,7 @@ void database::update_witness_schedule()
             modify( *itr, [&]( witness_object& wo )
             {
                wo.virtual_scheduled_time = fc::uint128::max_value();
+               wo.schedule =  witness_object::top19;
             } );
          }
 
@@ -1396,6 +1397,7 @@ void database::update_witness_schedule()
             {
                wo.virtual_position = fc::uint128();
                new_virtual_time = wo.virtual_scheduled_time; /// everyone advances to this time
+               wo.schedule = witness_object::timeshare;
 
                /// extra cautious sanity check... we should never end up here if witnesses are
                /// properly voted on. TODO: remove this line if it is not triggered and therefore
@@ -1424,6 +1426,7 @@ void database::update_witness_schedule()
             modify( *itr, [&](witness_object& wit )
             {
                wit.pow_worker = 0;
+               wit.schedule = witness_object::miner;
             } );
             modify( get_dynamic_global_properties(), [&]( dynamic_global_property_object& obj )
             {
