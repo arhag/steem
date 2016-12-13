@@ -36,6 +36,7 @@ class account_history_plugin_impl
       account_history_plugin& _self;
       flat_map<string,string> _tracked_accounts;
       bool                    _filter_content = false;
+      bool                    _include_block_rewards = false;
 };
 
 account_history_plugin_impl::~account_history_plugin_impl()
@@ -56,7 +57,6 @@ struct operation_visitor
    /// ignore these ops
    /*
    */
-
 
    template<typename Op>
    void operator()( Op&& )const
@@ -94,7 +94,18 @@ struct operation_visitor
    }
 };
 
+struct operation_visitor_default : operation_visitor {
+   operation_visitor_default( database& db, const operation_notification& note, const operation_object*& n, string i):operation_visitor(db,note,n,i){}
 
+   void operator()( const block_reward_operation& )const {}
+   void operator()( const missed_block_operation& )const {}
+
+   template<typename Op>
+   void operator()( Op&& op )const
+   {
+      operation_visitor::operator()( op );
+   }
+};
 
 struct operation_visitor_filter : operation_visitor {
    operation_visitor_filter( database& db, const operation_notification& note, const operation_object*& n, string i ):operation_visitor(db,note,n,i){}
@@ -182,8 +193,10 @@ void account_history_plugin_impl::on_operation( const operation_notification& no
       if( !_tracked_accounts.size() || (itr != _tracked_accounts.end() && itr->first <= item && item <= itr->second ) ) {
          if( _filter_content )
             note.op.visit( operation_visitor_filter(db, note, new_obj, item) );
-         else
+         else if( _include_block_rewards )
             note.op.visit( operation_visitor(db, note, new_obj, item) );
+         else
+            note.op.visit( operation_visitor_default(db, note, new_obj, item) );
       }
    }
 }
@@ -213,6 +226,7 @@ void account_history_plugin::plugin_set_program_options(
    cli.add_options()
          ("track-account-range", boost::program_options::value<std::vector<std::string>>()->composing()->multitoken(), "Defines a range of accounts to track as a json pair [\"from\",\"to\"] [from,to]")
          ("filter-posting-ops", "Ignore posting operations, only track transfers and account updates")
+         ("include-block-reward-ops", "Also track virtual operations for block rewards and missed blocks")
          ;
    cfg.add(cli);
 }
@@ -226,7 +240,11 @@ void account_history_plugin::plugin_initialize(const boost::program_options::var
    LOAD_VALUE_SET(options, "track-account-range", my->_tracked_accounts, pairstring);
    if( options.count( "filter-posting-ops" ) ) {
       my->_filter_content = true;
+   }  
+   if( options.count( "include-block-reward-ops" ) ) {
+      my->_include_block_rewards = true;
    }
+
 }
 
 void account_history_plugin::plugin_startup()
