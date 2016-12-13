@@ -2,6 +2,7 @@
 #include <steemit/protocol/base.hpp>
 #include <steemit/protocol/block_header.hpp>
 #include <steemit/protocol/asset.hpp>
+#include <steemit/chain/witness_object.hpp>
 
 #include <fc/utf8.hpp>
 
@@ -145,6 +146,28 @@ namespace steemit { namespace protocol {
       string            permlink;
    };
 
+   struct block_reward_operation : public virtual_operation
+   {
+      block_reward_operation() {}
+      block_reward_operation( const account_name_type& a, witness_object::witness_schedule_type t, const asset& r, const asset& s )
+         :witness(a), witness_type(t), reward(r), reward_steem_value(s) {}
+
+      account_name_type                     witness;
+      witness_object::witness_schedule_type witness_type = witness_object::none;
+      asset                                 reward;
+      asset                                 reward_steem_value;
+   };
+
+   struct missed_block_operation : public virtual_operation
+   {
+      missed_block_operation() {}
+      missed_block_operation( const account_name_type& a, witness_object::witness_schedule_type t )
+         :witness(a), witness_type(t) {}
+
+      account_name_type                     witness;
+      witness_object::witness_schedule_type witness_type = witness_object::none;
+   };
+
 } } //steemit::protocol
 
 FC_REFLECT( steemit::protocol::author_reward_operation, (author)(permlink)(sbd_payout)(steem_payout)(vesting_payout) )
@@ -159,3 +182,5 @@ FC_REFLECT( steemit::protocol::fill_order_operation, (current_owner)(current_ord
 FC_REFLECT( steemit::protocol::fill_transfer_from_savings_operation, (from)(to)(amount)(request_id)(memo) )
 FC_REFLECT( steemit::protocol::hardfork_operation, (hardfork_id) )
 FC_REFLECT( steemit::protocol::comment_payout_update_operation, (author)(permlink) )
+FC_REFLECT( steemit::protocol::block_reward_operation, (witness)(witness_type)(reward)(reward_steem_value) )
+FC_REFLECT( steemit::protocol::missed_block_operation, (witness)(witness_type) )

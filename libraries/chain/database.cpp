@@ -2203,7 +2203,8 @@ void database::process_funds()
           p.virtual_supply           += asset( new_steem, STEEM_SYMBOL );
       });
 
-      create_vesting( get_account( cwit.owner ), asset( witness_reward, STEEM_SYMBOL ) );
+      auto vests_rewarded = create_vesting( get_account( cwit.owner ), asset( witness_reward, STEEM_SYMBOL ) );
+      push_virtual_operation( block_reward_operation( cwit.owner, cwit.schedule, vests_rewarded, witness_reward ) );
    }
    else
    {
@@ -2284,11 +2285,13 @@ asset database::get_producer_reward()
    asset percent( protocol::calc_percent_reward_per_block< STEEMIT_PRODUCER_APR_PERCENT >( props.virtual_supply.amount ), STEEM_SYMBOL);
    auto pay = std::max( percent, STEEMIT_MIN_PRODUCER_REWARD );
    const auto& witness_account = get_account( props.current_witness );
+   const auto& witness_obj = get_witness( props.current_witness );
 
    /// pay witness in vesting shares
    if( props.head_block_number >= STEEMIT_START_MINER_VOTING_BLOCK || (witness_account.vesting_shares.amount.value == 0) ) {
       // const auto& witness_obj = get_witness( props.current_witness );
-      create_vesting( witness_account, pay );
+      auto vests_rewarded = create_vesting( witness_account, pay );
+      push_virtual_operation( block_reward_operation( witness_account.name, witness_obj.schedule, vests_rewarded, pay ) );
    }
    else
    {
@@ -2296,6 +2299,7 @@ asset database::get_producer_reward()
       {
          a.balance += pay;
       } );
+      push_virtual_operation( block_reward_operation( witness_account.name, witness_obj.schedule, pay, pay ) );
    }
 
    return pay;
@@ -3358,6 +3362,7 @@ void database::update_global_dynamic_data( const signed_block& b )
          const auto& witness_missed = get_witness( get_scheduled_witness( i + 1 ) );
          if(  witness_missed.owner != b.witness )
          {
+            push_virtual_operation( missed_block_operation( witness_missed.owner, witness_missed.schedule ) );
             modify( witness_missed, [&]( witness_object& w )
             {
                w.total_missed++;
