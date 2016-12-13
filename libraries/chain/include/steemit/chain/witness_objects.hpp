@@ -2,6 +2,7 @@
 
 #include <steemit/protocol/authority.hpp>
 #include <steemit/protocol/steem_operations.hpp>
+#include <steemit/protocol/steem_virtual_operations.hpp>
 
 #include <steemit/chain/steem_object_types.hpp>
 
@@ -33,6 +34,21 @@ namespace steemit { namespace chain {
             miner,
             none
          };
+
+         static steemit::protocol::witness_schedule_type convert_witness_schedule_type( witness_schedule_type t )
+         {
+            switch( t )
+            {
+               case top19:
+                  return steemit::protocol::witness_schedule_type::top19;
+               case timeshare:
+                  return steemit::protocol::witness_schedule_type::timeshare;
+               case miner:
+                  return steemit::protocol::witness_schedule_type::miner;
+               default:
+                  return steemit::protocol::witness_schedule_type::none;
+            }
+         }
 
          template< typename Constructor, typename Allocator >
          witness_object( Constructor&& c, allocator< Allocator > a )

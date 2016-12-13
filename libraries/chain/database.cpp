@@ -2204,7 +2204,7 @@ void database::process_funds()
       });
 
       auto vests_rewarded = create_vesting( get_account( cwit.owner ), asset( witness_reward, STEEM_SYMBOL ) );
-      push_virtual_operation( block_reward_operation( cwit.owner, cwit.schedule, vests_rewarded, witness_reward ) );
+      push_virtual_operation( block_reward_operation( cwit.owner, witness_object::convert_witness_schedule_type(cwit.schedule), vests_rewarded, witness_reward ) );
    }
    else
    {
@@ -2291,7 +2291,7 @@ asset database::get_producer_reward()
    if( props.head_block_number >= STEEMIT_START_MINER_VOTING_BLOCK || (witness_account.vesting_shares.amount.value == 0) ) {
       // const auto& witness_obj = get_witness( props.current_witness );
       auto vests_rewarded = create_vesting( witness_account, pay );
-      push_virtual_operation( block_reward_operation( witness_account.name, witness_obj.schedule, vests_rewarded, pay ) );
+      push_virtual_operation( block_reward_operation( witness_account.name, witness_object::convert_witness_schedule_type(witness_obj.schedule), vests_rewarded, pay ) );
    }
    else
    {
@@ -2299,7 +2299,7 @@ asset database::get_producer_reward()
       {
          a.balance += pay;
       } );
-      push_virtual_operation( block_reward_operation( witness_account.name, witness_obj.schedule, pay, pay ) );
+      push_virtual_operation( block_reward_operation( witness_account.name, witness_object::convert_witness_schedule_type(witness_obj.schedule), pay, pay ) );
    }
 
    return pay;
@@ -3362,7 +3362,7 @@ void database::update_global_dynamic_data( const signed_block& b )
          const auto& witness_missed = get_witness( get_scheduled_witness( i + 1 ) );
          if(  witness_missed.owner != b.witness )
          {
-            push_virtual_operation( missed_block_operation( witness_missed.owner, witness_missed.schedule ) );
+            push_virtual_operation( missed_block_operation( witness_missed.owner, witness_object::convert_witness_schedule_type(witness_missed.schedule) ) );
             modify( witness_missed, [&]( witness_object& w )
             {
                w.total_missed++;

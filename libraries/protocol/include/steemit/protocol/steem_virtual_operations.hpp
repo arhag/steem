@@ -2,7 +2,6 @@
 #include <steemit/protocol/base.hpp>
 #include <steemit/protocol/block_header.hpp>
 #include <steemit/protocol/asset.hpp>
-#include <steemit/chain/witness_object.hpp>
 
 #include <fc/utf8.hpp>
 
@@ -146,29 +145,39 @@ namespace steemit { namespace protocol {
       string            permlink;
    };
 
+   enum class witness_schedule_type
+   {
+      top19,
+      timeshare,
+      miner,
+      none
+   };
+
    struct block_reward_operation : public virtual_operation
    {
       block_reward_operation() {}
-      block_reward_operation( const account_name_type& a, witness_object::witness_schedule_type t, const asset& r, const asset& s )
+      block_reward_operation( const account_name_type& a, witness_schedule_type t, const asset& r, const asset& s )
          :witness(a), witness_type(t), reward(r), reward_steem_value(s) {}
 
-      account_name_type                     witness;
-      witness_object::witness_schedule_type witness_type = witness_object::none;
-      asset                                 reward;
-      asset                                 reward_steem_value;
+      account_name_type     witness;
+      witness_schedule_type witness_type = witness_schedule_type::none;
+      asset                 reward;
+      asset                 reward_steem_value;
    };
 
    struct missed_block_operation : public virtual_operation
    {
       missed_block_operation() {}
-      missed_block_operation( const account_name_type& a, witness_object::witness_schedule_type t )
+      missed_block_operation( const account_name_type& a, witness_schedule_type t )
          :witness(a), witness_type(t) {}
 
-      account_name_type                     witness;
-      witness_object::witness_schedule_type witness_type = witness_object::none;
+      account_name_type     witness;
+      witness_schedule_type witness_type = witness_schedule_type::none;
    };
 
 } } //steemit::protocol
+
+FC_REFLECT_ENUM( steemit::protocol::witness_schedule_type, (top19)(timeshare)(miner)(none) )
 
 FC_REFLECT( steemit::protocol::author_reward_operation, (author)(permlink)(sbd_payout)(steem_payout)(vesting_payout) )
 FC_REFLECT( steemit::protocol::curation_reward_operation, (curator)(reward)(comment_author)(comment_permlink) )
